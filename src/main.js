@@ -343,10 +343,52 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Helper to show custom toast notifications
+  function showToast(title, message, type = 'success') {
+    // Check if there is an existing toast, remove it
+    const existingToast = document.querySelector('.toast-notification');
+    if (existingToast) {
+      existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast-notification`;
+    
+    const iconSvg = type === 'success' 
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="16" height="16"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+
+    toast.innerHTML = `
+      <div class="toast-icon ${type}">
+        ${iconSvg}
+      </div>
+      <div class="toast-content">
+        <div class="toast-title">${title}</div>
+        <div class="toast-message">${message}</div>
+      </div>
+    `;
+
+    document.body.appendChild(toast);
+
+    // Trigger reflow
+    toast.offsetHeight;
+
+    // Add active class
+    toast.classList.add('active');
+
+    // Remove after 4 seconds
+    setTimeout(() => {
+      toast.classList.remove('active');
+      setTimeout(() => {
+        toast.remove();
+      }, 500);
+    }, 4000);
+  }
+
   // --- 7. Interactive Form Submission ---
   const contactForm = document.getElementById('main-contact-form');
   if (contactForm) {
-    contactForm.addEventListener('submit', (e) => {
+    contactForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
       const submitBtn = document.getElementById('form-submit-btn');
@@ -357,16 +399,62 @@ document.addEventListener('DOMContentLoaded', () => {
       submitBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
       submitBtn.style.boxShadow = '0 0 20px rgba(16, 185, 129, 0.4)';
 
-      setTimeout(() => {
-        alert('Thank you! Your growth request has been securely transmitted. Our strategy experts will analyze your digital footprint and get in touch shortly.');
-        contactForm.reset();
+      // Collect form data
+      const formData = new FormData(contactForm);
+      const payload = {
+        name: formData.get('name'),
+        email: formData.get('email'),
+        service: formData.get('service'),
+        message: formData.get('message')
+      };
+
+      // Retrieve Env variables (Vite auto-replaces these during build/dev)
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        console.error('Supabase URL or Anon Key is missing in environment variables.');
+        showToast('Configuration Error', 'Environment variables for database connection are not set.', 'error');
+        resetSubmitButton();
+        return;
+      }
+
+      try {
+        const response = await fetch(`${supabaseUrl}/rest/v1/contacts`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseAnonKey,
+            'Authorization': `Bearer ${supabaseAnonKey}`,
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          showToast('Transmission Complete', 'Your details have been securely recorded. Our team will contact you shortly.');
+          contactForm.reset();
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          console.error('Supabase error:', errData);
+          showToast('Submission Failed', errData.message || 'Database rejected the request. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('Fetch error:', error);
+        showToast('Network Error', 'Failed to connect to the database. Please check your network connection.', 'error');
+      } finally {
+        resetSubmitButton();
+      }
+
+      function resetSubmitButton() {
         submitBtn.textContent = originalText;
         submitBtn.disabled = false;
         submitBtn.style.background = '';
         submitBtn.style.boxShadow = '';
-      }, 2000);
+      }
     });
   }
+
 
   // --- 8. SPA Hash Router for Service Detail Pages ---
   const mainLanding = document.getElementById('main-landing');
